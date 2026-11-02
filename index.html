@@ -1,0 +1,1095 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#46178f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="Poker Night — ตัวนับชิปโป๊กเกอร์ เล่นกับเพื่อนผ่านมือถือ">
+<title>Poker Night</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🃏</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800;900&family=Kanit:wght@400;500;600;700;800&display=swap">
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>body{margin:0}
+/* Layout: quiz-show world — white top bar (street cards + pot), player chips, big spotlight, 2×2 shape buttons. Single deliberate look: deep purple stage, white cards, four answer colors. */
+:root{
+  --stage:#46178f; --stage2:#381272; --stage3:#2a0c5a; --white:#ffffff; --ink:#1b1235; --muted:#6b6385; --soft:#f2f0f7;
+  --red:#e21b3c; --blue:#1368ce; --yellow:#d89e00; --green:#26890c; --gold:#ffc000;
+  --font:"Montserrat","Kanit",system-ui,sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--stage);color:var(--white)}
+body{font-family:var(--font);font-size:16px;line-height:1.35;overflow-x:hidden;
+  background:
+   radial-gradient(circle at 8% 22%,rgba(255,255,255,.06) 0 46px,transparent 47px),
+   radial-gradient(circle at 92% 70%,rgba(255,255,255,.05) 0 70px,transparent 71px),
+   conic-gradient(from 45deg at 85% 12%,rgba(255,255,255,.05) 0 25%,transparent 0) ,
+   linear-gradient(160deg,var(--stage) 0%,var(--stage2) 100%);
+  background-attachment:fixed}
+body::before{content:"";position:fixed;width:180px;height:180px;left:-60px;bottom:8%;background:rgba(255,255,255,.04);transform:rotate(25deg);border-radius:18px;pointer-events:none}
+body::after{content:"";position:fixed;right:-40px;top:38%;border-left:90px solid transparent;border-right:90px solid transparent;border-bottom:150px solid rgba(255,255,255,.04);transform:rotate(-18deg);pointer-events:none}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+button:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.4)}
+input{font:inherit;color:var(--ink)}
+.num{font-variant-numeric:tabular-nums}
+.app{position:relative;z-index:1;height:100%;max-width:560px;margin:0 auto;display:flex;flex-direction:column;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.av{--s:44px;width:var(--s);height:var(--s);border-radius:50%;background:var(--pc);display:grid;place-items:center;font-size:calc(var(--s)*.55);position:relative;flex:none;line-height:1}
+.shape{display:inline-block;width:1em;height:1em;flex:none;background:#fff}
+.s-tri{clip-path:polygon(50% 6%,96% 92%,4% 92%)}
+.s-dia{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.s-cir{border-radius:50%}
+.s-sq{border-radius:2px;transform:scale(.86)}
+
+/* top bar */
+.topbar{margin-top:12px;background:var(--white);color:var(--ink);border-radius:14px;padding:10px 12px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 0 rgba(0,0,0,.18)}
+.hand{font-weight:900;font-size:15px;line-height:1.1}
+.hand small{display:block;font-weight:700;font-size:11px;color:var(--muted)}
+.cards{display:flex;gap:4px;flex:1;justify-content:center}
+.cards i{width:22px;height:30px;border-radius:5px;display:grid;place-items:center;font-style:normal;font-size:13px;font-weight:900;
+  background:repeating-linear-gradient(45deg,var(--stage) 0 3px,#5d2bb0 3px 6px);border:2px solid var(--stage);transition:transform .35s}
+.cards i.on{background:#fff;border-color:#d9d4e8;transform:translateY(-3px) rotate(-3deg);box-shadow:0 3px 0 rgba(0,0,0,.12)}
+.cards i.on.r{color:var(--red)}.cards i.on.b{color:var(--ink)}
+.cards i.gap{margin-left:5px}
+.potbox{background:var(--stage);color:#fff;border-radius:10px;padding:5px 10px;text-align:right;line-height:1.05;min-width:84px}
+.potbox small{display:block;font-size:10px;font-weight:700;opacity:.8;letter-spacing:.05em}
+.potbox b{font-size:20px;font-weight:900;display:inline-block}
+.potbox b.bump{animation:bump .35s}
+.tools{display:flex;gap:6px}
+.ibtn{width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-size:18px;font-weight:800;display:grid;place-items:center;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2)}
+.subrow{display:flex;align-items:center;gap:8px;padding-top:10px}
+.streetname{flex:1;font-weight:800;font-size:14px}
+.streetname small{font-weight:600;opacity:.75;margin-left:6px}
+.sidepots{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px}
+.sidepots span{font-size:12px;font-weight:700;background:rgba(0,0,0,.25);border-radius:999px;padding:3px 10px}
+
+/* strip */
+.strip{display:flex;gap:8px;overflow-x:auto;padding-block:10px 4px;scrollbar-width:none}
+.strip::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border-radius:999px;padding:4px 10px 4px 4px;font-size:12px;font-weight:700;position:relative}
+.chip .av{--s:28px}
+.chip .st{opacity:.8;font-weight:600}
+.chip.cur{background:var(--white);color:var(--ink);box-shadow:0 4px 0 rgba(0,0,0,.2)}
+.chip.fold,.chip.out{opacity:.4}
+.chip.out .av{filter:grayscale(1)}
+.chip .tg{font-size:9px;font-weight:900;border-radius:5px;padding:1px 4px;background:#fff;color:var(--ink)}
+.chip .tg.sb{background:var(--blue);color:#fff}.chip .tg.bb{background:var(--red);color:#fff}
+.chip.cur .tg{box-shadow:0 0 0 1px #d9d4e8}
+.chip .ai{font-size:9px;font-weight:900;background:var(--red);color:#fff;border-radius:5px;padding:1px 4px}
+.chip .bt{background:var(--gold);color:var(--ink);border-radius:999px;padding:0 6px;font-size:11px}
+
+/* stage */
+.stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding-block:8px;text-align:center;min-height:0}
+.spot{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;width:100%}
+.stat{justify-self:center;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;align-content:center;background:var(--stage3);box-shadow:inset 0 -4px 0 rgba(0,0,0,.25);line-height:1.05}
+.stat b{font-size:19px;font-weight:900}
+.stat small{font-size:10px;font-weight:700;opacity:.75}
+.stat.hot{background:var(--red)}
+.stat.ok{background:var(--green)}
+.hero{position:relative}
+.hero .av{--s:132px;border:6px solid #fff;box-shadow:0 10px 0 rgba(0,0,0,.22)}
+.hero.enter{animation:boing .55s cubic-bezier(.2,1.4,.4,1)}
+.hero .pos{position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);display:flex;gap:4px}
+.hero .pos span{font-size:11px;font-weight:900;padding:3px 8px;border-radius:7px;background:#fff;color:var(--ink);box-shadow:0 3px 0 rgba(0,0,0,.2);white-space:nowrap}
+.hero .pos .sb{background:var(--blue);color:#fff}.hero .pos .bb{background:var(--red);color:#fff}
+.namecard{background:#fff;color:var(--ink);border-radius:12px;padding:8px 22px;box-shadow:0 6px 0 rgba(0,0,0,.18);margin-top:8px;max-width:100%}
+.namecard small{display:block;font-size:12px;font-weight:700;color:var(--muted)}
+.namecard b{display:block;font-size:30px;font-weight:900;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.under{font-size:14px;font-weight:600;opacity:.85}
+.under b{color:var(--gold)}
+
+/* answer buttons */
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-block:8px calc(16px + env(safe-area-inset-bottom,0px))}
+.ans{min-height:86px;border-radius:12px;color:#fff;display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;box-shadow:inset 0 -7px 0 rgba(0,0,0,.25),0 4px 10px rgba(0,0,0,.2);transition:transform .08s}
+.ans:active{transform:translateY(3px);box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+.ans .shape{font-size:30px;filter:drop-shadow(0 2px 0 rgba(0,0,0,.25))}
+.ans b{display:block;font-size:20px;font-weight:900;line-height:1.05}
+.ans small{display:block;font-size:13px;font-weight:600;opacity:.9}
+.a-red{background:var(--red)}.a-blue{background:var(--blue)}.a-yellow{background:var(--yellow)}.a-green{background:var(--green)}
+.bigbtn{width:100%;border-radius:12px;padding:16px;font-size:18px;font-weight:900;background:#fff;color:var(--ink);box-shadow:inset 0 -6px 0 rgba(0,0,0,.15),0 4px 10px rgba(0,0,0,.2)}
+.bigbtn.dark{background:var(--ink);color:#fff;box-shadow:inset 0 -6px 0 rgba(0,0,0,.5)}
+.bigbtn.go{background:var(--green);color:#fff;box-shadow:inset 0 -6px 0 rgba(0,0,0,.25)}
+.bigbtn:active{transform:translateY(3px)}
+.footer{padding-block:8px calc(16px + env(safe-area-inset-bottom,0px))}
+
+/* question card */
+.qcard{background:#fff;color:var(--ink);border-radius:14px;padding:14px 18px;box-shadow:0 6px 0 rgba(0,0,0,.18);width:100%}
+.qcard h2{margin:0;font-size:26px;font-weight:900}
+.qcard p{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+.potsec{width:100%;display:grid;gap:8px}
+.potsec h3{margin:0;font-size:13px;font-weight:800;display:flex;justify-content:space-between;opacity:.9}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;width:100%}
+.tile{border-radius:12px;padding:10px;display:flex;align-items:center;gap:10px;color:#fff;font-weight:800;text-align:left;box-shadow:inset 0 -6px 0 rgba(0,0,0,.25);position:relative;min-width:0;transition:transform .12s}
+.tile .av{--s:42px;border:3px solid rgba(255,255,255,.7)}
+.tile span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .shape{position:absolute;right:10px;top:10px;font-size:12px;opacity:.6}
+.tile.on{outline:4px solid #fff;outline-offset:-2px;transform:scale(1.03)}
+.tile.on::after{content:"✓";position:absolute;right:8px;bottom:8px;width:24px;height:24px;border-radius:50%;background:#fff;color:var(--green);display:grid;place-items:center;font-weight:900}
+
+/* result */
+.banner{width:calc(100% + 32px);margin-inline:-16px;background:var(--green);padding:14px;text-align:center;font-size:28px;font-weight:900;box-shadow:0 6px 0 rgba(0,0,0,.2);animation:slide .45s cubic-bezier(.2,1.2,.4,1)}
+.winners{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.winners .w{display:grid;justify-items:center;gap:6px;animation:boing .6s cubic-bezier(.2,1.4,.4,1)}
+.winners .av{--s:96px;border:5px solid #fff;box-shadow:0 8px 0 rgba(0,0,0,.22)}
+.crown{position:absolute;top:-26px;left:50%;transform:translateX(-50%);font-size:32px;animation:bob 1s ease-in-out infinite alternate}
+.scorepill{background:var(--stage3);border-radius:10px;padding:8px 22px;font-size:30px;font-weight:900;box-shadow:inset 0 -4px 0 rgba(0,0,0,.3)}
+.board{width:100%;display:grid;gap:6px}
+.board h3{margin:0;text-align:center;background:#fff;color:var(--ink);border-radius:10px;padding:8px;font-size:18px;font-weight:900;box-shadow:0 5px 0 rgba(0,0,0,.18);justify-self:center;min-width:60%}
+.brow{display:flex;align-items:center;gap:10px;background:#fff;color:var(--ink);border-radius:10px;padding:6px 12px 6px 6px;font-weight:800;animation:rowin .4s backwards}
+.brow .av{--s:34px}
+.brow .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.brow .sc{font-size:17px;font-weight:900}
+.brow .dl{font-size:12px;font-weight:800;color:var(--green)}
+.brow.top{background:var(--stage3);color:#fff}
+.brow.top .dl{color:var(--gold)}
+.brow.out{opacity:.55}
+.rebuys{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.rb{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.14);border-radius:999px;padding:4px 14px 4px 4px;font-size:13px;font-weight:800;box-shadow:inset 0 -3px 0 rgba(0,0,0,.2)}
+.rb .av{--s:28px}
+.hint{font-size:13px;font-weight:600;opacity:.8;margin:0;text-align:center}
+
+/* podium */
+.podium{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:end;gap:8px;width:100%;margin-top:10px}
+.pod{display:grid;justify-items:center;gap:6px}
+.pod .av{--s:64px;border:4px solid #fff}
+.pod .nm{font-weight:900;font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pod .blk{width:100%;border-radius:10px 10px 0 0;background:var(--stage3);display:grid;place-items:start center;padding-top:10px;font-size:30px;font-weight:900;box-shadow:inset 0 -6px 0 rgba(0,0,0,.25);animation:rise .7s cubic-bezier(.2,1.2,.4,1) backwards}
+.pod.p1 .blk{height:150px;background:#5d2bb0;animation-delay:.6s}
+.pod.p2 .blk{height:110px;animation-delay:.3s}
+.pod.p3 .blk{height:80px}
+.pod small{font-size:13px;font-weight:700;opacity:.85}
+
+/* lobby */
+.lobby{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;padding-block:22px calc(24px + env(safe-area-inset-bottom,0px))}
+.logo{text-align:center;display:grid;gap:4px;justify-items:center}
+.logo h1{margin:0;font-size:46px;font-weight:900;line-height:.95;letter-spacing:-.02em;transform:rotate(-3deg);text-shadow:0 5px 0 rgba(0,0,0,.25)}
+.logo .shapes{display:flex;gap:6px;font-size:18px}
+.logo .shapes .shape:nth-child(1){background:var(--red)}.logo .shapes .shape:nth-child(2){background:var(--blue)}.logo .shapes .shape:nth-child(3){background:var(--yellow)}.logo .shapes .shape:nth-child(4){background:var(--green)}
+.logo p{margin:6px 0 0;font-weight:600;opacity:.85}
+.card{background:#fff;color:var(--ink);border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1fr);min-width:0;gap:10px;box-shadow:0 6px 0 rgba(0,0,0,.18)}
+.card h3{margin:0;font-size:14px;font-weight:900;display:flex;justify-content:space-between;align-items:baseline}
+.card h3 span:last-child{font-size:12px;font-weight:600;color:var(--muted)}
+.prow{display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:5px;border:2px solid #e5e1ef}
+.prow .av{--s:40px;cursor:pointer}
+.prow input{flex:1;min-width:0;border:0;background:transparent;font-weight:800;font-size:16px;padding:6px 2px}
+.prow .x{width:30px;height:30px;border-radius:8px;color:var(--muted);font-weight:900}
+.addp{border:2px dashed #cfc8e2;border-radius:10px;padding:12px;font-weight:800;color:var(--stage)}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pills button{flex:1;min-width:64px;padding:10px 6px;border-radius:10px;background:var(--soft);font-weight:800;font-size:14px;color:var(--ink);box-shadow:inset 0 -3px 0 rgba(0,0,0,.08)}
+.pills button.on{background:var(--stage);color:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,.3)}
+.numrow{display:flex;gap:8px}
+.numin{flex:1;min-width:0;background:var(--soft);border:2px solid #e5e1ef;border-radius:10px;padding:10px 12px;font-weight:800;font-size:17px}
+.flab{font-size:12px;font-weight:700;color:var(--muted)}
+.err{background:var(--red);color:#fff;border-radius:10px;padding:10px;text-align:center;margin:0;font-weight:800}
+
+/* overlays */
+.backdrop{position:fixed;inset:0;z-index:40;background:rgba(20,6,45,.6);display:flex;align-items:flex-end;justify-content:center;animation:fade .2s}
+.modal{width:100%;max-width:560px;max-height:88vh;overflow:auto;background:#fff;color:var(--ink);border-radius:20px 20px 0 0;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:grid;gap:12px;animation:up .32s cubic-bezier(.2,1.1,.4,1)}
+.mhead{display:flex;align-items:center;justify-content:space-between}
+.mhead h2{margin:0;font-size:24px;font-weight:900}
+.xbtn{width:40px;height:40px;border-radius:10px;background:var(--soft);font-weight:900;font-size:16px}
+.bigamt{display:flex;align-items:center;justify-content:center;gap:12px}
+.bigamt input{width:180px;text-align:center;font-size:48px;font-weight:900;border:0;background:transparent;color:var(--stage);padding:0}
+.stp{width:52px;height:52px;border-radius:12px;background:var(--soft);font-size:26px;font-weight:900;box-shadow:inset 0 -4px 0 rgba(0,0,0,.08)}
+input[type=range]{width:100%;accent-color:var(--stage);height:32px}
+.quick{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.quick button{color:#fff;border-radius:10px;padding:10px 2px;font-weight:900;font-size:13px;display:grid;justify-items:center;gap:3px;box-shadow:inset 0 -4px 0 rgba(0,0,0,.25)}
+.quick .shape{font-size:14px}
+.mhint{font-size:13px;color:var(--muted);font-weight:600;text-align:center;margin:0}
+.tabs{display:flex;gap:6px}
+.tabs button{flex:1;padding:10px;border-radius:10px;background:var(--soft);font-weight:800}
+.tabs button.on{background:var(--stage);color:#fff}
+.log{display:grid;gap:4px;font-size:14px}
+.log .h{font-weight:900;padding-top:8px;color:var(--stage)}
+.log .e{background:var(--soft);border-radius:8px;padding:7px 10px;font-weight:600}
+.mrank .brow{background:var(--soft)}
+.softbtn{background:var(--soft);border-radius:10px;padding:13px;font-weight:800;box-shadow:inset 0 -3px 0 rgba(0,0,0,.08)}
+.danger{background:#ffe3e8;color:var(--red);border-radius:12px;padding:12px;font-weight:800;display:grid;gap:10px}
+
+.helpbtn{align-self:flex-end;width:46px;height:46px;border-radius:50%;background:#fff;color:var(--stage);font-size:24px;font-weight:900;box-shadow:0 4px 0 rgba(0,0,0,.25);margin-top:auto}
+.helpbtn.in{position:absolute;right:12px;top:50%;transform:translateY(-50%);width:38px;height:38px;font-size:20px;margin:0;background:var(--stage);color:#fff}
+.hands{display:grid;gap:6px}
+.hrow{display:flex;align-items:center;gap:10px;background:var(--soft);border-radius:10px;padding:8px}
+.hrow:first-child{background:#fff4d1}
+.hn{width:20px;font-weight:900;color:var(--muted);text-align:center;flex:none}
+.hc{display:flex;gap:3px;flex:none}
+.hc i{width:26px;height:36px;border-radius:5px;font-style:normal;display:grid;place-items:center;align-content:center;line-height:1}
+.hc .pc0{border:1.5px dashed #d0cadf}
+.hc .pc1{background:#fff;border:1.5px solid #d9d4e8;color:var(--ink);box-shadow:0 2px 0 rgba(0,0,0,.08)}
+.hc .pc1.r{color:var(--red)}
+.hc .pc1 b{font-size:12px;font-weight:900}.hc .pc1 span{font-size:12px}
+.ht{min-width:0;line-height:1.2}
+.ht b{display:block;font-size:14px;font-weight:900}
+.ht small{font-size:12px;color:var(--muted);font-weight:600}
+.rules{display:grid;gap:8px;font-size:13px;font-weight:600}
+.rules p{margin:0;background:var(--soft);border-radius:10px;padding:10px}
+.rules b{color:var(--stage)}
+@media (max-width:360px){.hc i{width:22px;height:32px}}
+.toast{position:fixed;left:50%;top:calc(110px + env(safe-area-inset-top,0px));z-index:70;transform:translateX(-50%);background:#fff;color:var(--ink);border-radius:12px;padding:10px 18px;font-weight:900;font-size:16px;display:flex;gap:8px;align-items:center;box-shadow:0 6px 0 rgba(0,0,0,.25);pointer-events:none;white-space:nowrap}
+canvas#fx{position:fixed;inset:0;width:100%;height:100%;z-index:65;pointer-events:none}
+@keyframes boing{0%{transform:scale(.3);opacity:0}60%{transform:scale(1.08);opacity:1}100%{transform:scale(1)}}
+@keyframes bump{50%{transform:scale(1.2)}}
+@keyframes bob{to{transform:translate(-50%,-5px)}}
+@keyframes fade{from{opacity:0}}
+@keyframes up{from{transform:translateY(100%)}}
+@keyframes slide{from{transform:translateX(-100%)}}
+@keyframes rowin{from{transform:translateX(30px);opacity:0}}
+@keyframes rise{from{transform:scaleY(0);transform-origin:bottom}}
+@media (max-height:700px){.hero .av{--s:104px}.namecard b{font-size:24px}.ans{min-height:72px}.stat{width:66px;height:66px}}
+@media (max-width:360px){.stat{width:62px;height:62px}.stat b{font-size:16px}.ans b{font-size:17px}.cards i{width:18px;height:26px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.stage{position:relative}
+.stage.top{justify-content:flex-start;padding-top:12px}
+.focus{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
+.helpbtn{position:absolute;right:0;bottom:6px;margin:0}
+.helpbtn.in{right:12px;bottom:auto}
+.namecard.mine{background:var(--gold)}
+.namecard.mine small{color:var(--ink)}
+.dots{display:inline-flex;gap:6px;align-items:center;height:18px;vertical-align:middle}
+.dots i{width:10px;height:10px;border-radius:50%;background:currentColor;display:block;animation:dot 1.2s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}.dots i:nth-child(4){animation-delay:.45s}
+@keyframes dot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-9px);opacity:1}}
+.waitbox{background:#fff;color:var(--stage);border-radius:14px;min-height:96px;display:grid;place-items:center;align-content:center;gap:12px;padding:16px;text-align:center;box-shadow:0 6px 0 rgba(0,0,0,.18)}
+.waitbox b{font-size:18px;font-weight:900;color:var(--ink)}
+.mebar{margin-top:10px;display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.25);border-radius:999px;padding:5px 16px 5px 5px;font-weight:700;font-size:14px}
+.mebar .av{--s:32px}
+.mebar b{margin-left:auto;color:var(--gold);font-size:17px}
+.home{min-height:100%;align-content:center}
+.homebtns{display:grid;gap:12px}
+.ans.big{min-height:108px}
+.ans.big b{font-size:24px}
+.linkbtn{color:#fff;opacity:.85;font-weight:700;text-decoration:underline;text-underline-offset:4px;padding:10px;justify-self:center}
+.pagehead{display:flex;align-items:center;gap:10px}
+.pagehead h2{margin:0;font-size:26px;font-weight:900}
+.mepreview{display:flex;align-items:center;gap:12px}
+.mepreview .av{border:4px solid var(--soft)}
+.avgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.avgrid button{aspect-ratio:1;width:100%;border-radius:50%;background:var(--pc);font-size:34px;display:grid;place-items:center;transition:transform .12s}
+.avgrid button:active{transform:scale(.92)}
+.avgrid button.on{box-shadow:0 0 0 4px #fff,0 0 0 7px var(--stage)}
+.pinbox{background:#fff;border-radius:14px;padding:14px;display:grid;gap:10px;box-shadow:0 6px 0 rgba(0,0,0,.18)}
+.pin{width:100%;text-align:center;font-size:30px;font-weight:900;letter-spacing:.2em;border:2px solid #e5e1ef;border-radius:10px;padding:12px;background:var(--soft)}
+.pin::placeholder{letter-spacing:0;font-size:20px;color:#a39cb8}
+.codebox{background:#fff;color:var(--ink);border-radius:14px;padding:14px;display:grid;justify-items:center;gap:2px;box-shadow:0 6px 0 rgba(0,0,0,.18)}
+.codebox small{font-weight:800;color:var(--muted);font-size:13px}
+.codebox b{font-size:52px;font-weight:900;letter-spacing:.06em;line-height:1}
+.copy{margin-top:6px;background:var(--stage);color:#fff;border-radius:999px;padding:6px 16px;font-weight:800;font-size:13px}
+.pname{flex:1;min-width:0;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pname em{font-style:normal;color:var(--muted);font-weight:600}
+.hosttag{font-size:10px;font-weight:900;background:var(--gold);color:var(--ink);border-radius:5px;padding:1px 5px;vertical-align:middle}
+.prow .av{--s:40px}
+
+
+.editav{cursor:pointer;border:0;padding:0}
+.pen{position:absolute;right:-4px;bottom:-4px;width:26px;height:26px;border-radius:50%;background:var(--stage);color:#fff;font-size:13px;display:grid;place-items:center;border:3px solid #fff}
+.prow .editav .pen{width:20px;height:20px;font-size:10px;border-width:2px}
+.netbar{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));z-index:80;background:var(--red);color:#fff;font-weight:800;font-size:14px;border-radius:999px;padding:8px 16px;display:flex;gap:10px;align-items:center;white-space:nowrap;box-shadow:0 4px 0 rgba(0,0,0,.25)}
+.codebox .numrow{gap:8px;flex-wrap:wrap;justify-content:center}
+.app{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<canvas id="fx"></canvas>
+<script>
+const KEY='pokernight.v5';
+const AVATARS=['🐻','🐰','🐱','🦊','🐼','🐨','🐸','🐥','🐷','🦄','🐶','🐹','🐯','🐮','🐙','🦋'];
+const PCOL=['#ff8fab','#7cc4ff','#7ee0a6','#ffd666','#b9a3ff','#ffb37a','#6fe3dc','#f59ee8','#c3e07a','#9fb2ff'];
+const ACOL=['a-red','a-blue','a-yellow','a-green'],SHAPES=['s-tri','s-dia','s-cir','s-sq'];
+const STREETS=['Pre-flop','Flop','Turn','River'];
+const STREET_TH=['ยังไม่เปิดไพ่กลาง','เปิด 3 ใบ','เปิดใบที่ 4','ใบสุดท้าย'];
+const SUITS=[['♠','b'],['♥','r'],['♣','b'],['♦','r'],['♠','b']];
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $=s=>document.querySelector(s);
+const fmt=n=>Number(n).toLocaleString('en-US');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- state ---------- */
+let S=null,hist=[];               // game state (shared logic works on global S)
+let mode=null;                    // null | 'local' | 'online'
+let view='home';                  // home | create | join | profile | lobby | localsetup | game
+let NET={status:'checking',client:null,cid:null};
+let R={code:null,room:null,host:null,pending:null};
+let ui={picker:null,help:false,raiseTo:null,raiseFor:-1,raiseOpen:false,modal:false,tab:'log',confirm:false,sound:true,lastKey:'',lastPot:-1,override:false,
+  me:{name:'',a:0},joinCode:'',err:'',
+  setup:{players:[{n:'',a:0},{n:'',a:1},{n:'',a:2},{n:'',a:3}],chips:1000,sb:10,bb:20,every:0}};
+
+function loadLocal(){try{NET.cid=localStorage.getItem(KEY+'.cid');if(!NET.cid){NET.cid='p'+Math.random().toString(36).slice(2,12)+Date.now().toString(36);localStorage.setItem(KEY+'.cid',NET.cid)}}catch(e){NET.cid='p'+Math.random().toString(36).slice(2,12)}
+  try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d){if(d.local&&d.local.S){S=d.local.S;hist=d.local.hist||[];mode='local';view='game'}if(d.sound===false)ui.sound=false;if(d.me)ui.me=d.me;if(d.room)R.code=d.room}}catch(e){}}
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify({local:mode==='local'&&S?{S,hist:hist.slice(-40)}:null,sound:ui.sound,me:ui.me,room:mode==='online'?R.code:null}))}catch(e){}}
+function snap(){}            // history is handled by commit()
+function log(t){S.log.push({h:S.handNo,t})}
+
+/* ================= GAME LOGIC ================= */
+
+
+const inHand=p=>!p.out&&!p.folded;
+const canAct=p=>inHand(p)&&!p.allIn;
+function nextIdx(from,pred){const P=S.players,n=P.length;for(let i=1;i<=n;i++){const k=((from+i)%n+n)%n;if(pred(P[k],k))return k}return -1}
+const potTotal=()=>S.players.reduce((a,p)=>a+p.total,0);
+
+function newGame(c){
+  S={players:c.players.map((p,i)=>({name:p.name,av:p.av,ci:i%10,uid:p.uid||null,stack:c.chips,bet:0,total:0,folded:false,allIn:false,acted:false,out:false,buyins:1})),
+    startChips:c.chips,sb:c.sb,bb:c.bb,every:c.every,handNo:0,dealer:-1,sbIdx:-1,bbIdx:-1,
+    phase:'idle',street:0,currentBet:0,minRaise:c.bb,toAct:-1,log:[],pots:[],win:{},result:[]};
+  hist=[];startHand();
+}
+function put(p,a){a=Math.max(0,Math.min(a,p.stack));p.stack-=a;p.bet+=a;p.total+=a;if(p.stack===0)p.allIn=true;return a}
+
+function startHand(){
+  const P=S.players;
+  P.forEach(p=>{if(p.stack<=0)p.out=true});
+  const alive=P.filter(p=>!p.out);
+  if(alive.length<2){S.phase='gameover';return}
+  S.handNo++;
+  if(S.every>0&&S.handNo>1&&(S.handNo-1)%S.every===0){S.sb*=2;S.bb*=2;log(`บลายด์ขึ้นเป็น ${fmt(S.sb)}/${fmt(S.bb)}`);S.blindUp=true}else S.blindUp=false;
+  P.forEach(p=>{p.bet=0;p.total=0;p.folded=p.out;p.allIn=false;p.acted=false});
+  const live=p=>!p.out;
+  S.dealer=nextIdx(S.dealer,live);
+  if(alive.length===2){S.sbIdx=S.dealer;S.bbIdx=nextIdx(S.dealer,live)}
+  else{S.sbIdx=nextIdx(S.dealer,live);S.bbIdx=nextIdx(S.sbIdx,live)}
+  S.phase='betting';S.street=0;S.result=[];S.win={};
+  const a=put(P[S.sbIdx],S.sb),b=put(P[S.bbIdx],S.bb);
+  log(`ดีลเลอร์ ${P[S.dealer].name}`);
+  log(`${P[S.sbIdx].name} ลง SB ${fmt(a)} · ${P[S.bbIdx].name} ลง BB ${fmt(b)}`);
+  S.currentBet=S.bb;S.minRaise=S.bb;S.toAct=S.bbIdx;
+  advance();
+}
+function advance(){
+  const P=S.players;
+  const live=P.filter(inHand);
+  if(live.length===1)return awardUncontested(live[0]);
+  const actors=P.filter(canAct);
+  const pending=actors.filter(p=>!p.acted||p.bet<S.currentBet);
+  if(pending.length===0||(actors.length<=1&&actors.every(p=>p.bet>=S.currentBet)))return nextStreet();
+  S.toAct=nextIdx(S.toAct,p=>pending.includes(p));
+}
+function nextStreet(){
+  const P=S.players;
+  P.forEach(p=>{p.bet=0;p.acted=false});
+  S.currentBet=0;S.minRaise=S.bb;
+  if(S.street>=3)return toShowdown();
+  S.street++;
+  if(P.filter(canAct).length<=1){log(`ทุกคน all-in → เปิด ${STREETS[S.street]}`);return nextStreet()}
+  log(`เปิด ${STREETS[S.street]} · หม้อ ${fmt(potTotal())}`);
+  S.toAct=S.dealer;advance();
+}
+function computePots(){
+  const P=S.players;
+  const levels=[...new Set(P.filter(p=>inHand(p)&&p.allIn).map(p=>p.total))].sort((a,b)=>a-b);
+  levels.push(Infinity);
+  let prev=0;const pots=[];
+  for(const lv of levels){
+    let amt=0;P.forEach(p=>{amt+=Math.max(0,Math.min(p.total,lv)-prev)});
+    const elig=P.map((p,i)=>i).filter(i=>inHand(P[i])&&(!P[i].allIn||P[i].total>=lv));
+    if(amt>0&&elig.length){const last=pots[pots.length-1];if(last&&last.elig.join()===elig.join())last.amount+=amt;else pots.push({amount:amt,elig})}
+    else if(amt>0&&pots.length)pots[pots.length-1].amount+=amt;
+    prev=lv;
+  }
+  return pots;
+}
+function toShowdown(){
+  S.phase='showdown';S.pots=computePots();S.win={};
+  S.pots.forEach((pt,i)=>{if(pt.elig.length===1)S.win[i]=[pt.elig[0]]});
+  log(`โชว์ดาวน์ · หม้อรวม ${fmt(potTotal())}`);
+  if(S.pots.every((pt,i)=>S.win[i]))payout();
+}
+function awardUncontested(w){
+  const amt=potTotal();w.stack+=amt;
+  S.result=[{i:S.players.indexOf(w),amt}];
+  log(`${w.name} ชนะ ${fmt(amt)} (คนอื่นหมอบหมด)`);
+  S.phase='handover';
+}
+function payout(){
+  const P=S.players,n=P.length,res={};
+  S.pots.forEach((pt,i)=>{
+    const ws=[...S.win[i]].sort((a,b)=>((a-S.dealer-1+n)%n)-((b-S.dealer-1+n)%n));
+    const share=Math.floor(pt.amount/ws.length);let rem=pt.amount-share*ws.length;
+    ws.forEach(w=>{const g=share+(rem>0?1:0);if(rem>0)rem--;P[w].stack+=g;res[w]=(res[w]||0)+g});
+    const label=S.pots.length>1?(i===0?'หม้อหลัก':`หม้อรอง ${i}`):'หม้อ';
+    log(`${label} ${fmt(pt.amount)} → ${ws.map(w=>P[w].name).join(' + ')}${ws.length>1?' (แบ่ง)':''}`);
+  });
+  S.result=Object.entries(res).map(([i,a])=>({i:+i,amt:a}));
+  S.phase='handover';
+}
+function doAct(type,to){
+  const p=S.players[S.toAct],toCall=S.currentBet-p.bet;
+  if(type==='fold'){p.folded=true;log(`${p.name} หมอบ`)}
+  else if(type==='check'){log(`${p.name} เช็ค`)}
+  else if(type==='call'){const a=put(p,toCall);log(`${p.name} คอล ${fmt(a)}${p.allIn?' (all-in)':''}`)}
+  else{
+    if(type==='allin')to=p.bet+p.stack;
+    if(to<=S.currentBet){const a=put(p,to-p.bet);log(`${p.name} คอล ${fmt(a)} (all-in)`)}
+    else{
+      const wasBet=S.currentBet===0;put(p,to-p.bet);
+      const by=to-S.currentBet;if(by>=S.minRaise)S.minRaise=by;
+      S.currentBet=to;S.players.forEach(q=>{if(q!==p)q.acted=false});
+      log(`${p.name} ${wasBet?'เบท':'เรสเป็น'} ${fmt(to)}${p.allIn?' (all-in)':''}`);
+    }
+  }
+  p.acted=true;ui.raiseFor=-1;ui.raiseOpen=false;
+  advance();
+}
+function raiseLimits(p){const maxTo=p.bet+p.stack;return{minTo:Math.min(S.currentBet+S.minRaise,maxTo),maxTo,canRaise:maxTo>S.currentBet}}
+
+
+
+/* ================= SOUND ================= */
+
+let AC=null;
+function ac(){if(!ui.sound)return null;try{if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();return AC}catch(e){return null}}
+function tone(f,d,type='sine',vol=.12,when=0){const c=ac();if(!c)return;const t=c.currentTime+when,o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t);g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g).connect(c.destination);o.start(t);o.stop(t+d+.02)}
+function noise(d,f,vol=.2,when=0){const c=ac();if(!c)return;const t=c.currentTime+when,len=Math.floor(c.sampleRate*d),buf=c.createBuffer(1,len,c.sampleRate),a=buf.getChannelData(0);for(let i=0;i<len;i++)a[i]=(Math.random()*2-1)*(1-i/len);const s=c.createBufferSource(),bp=c.createBiquadFilter(),g=c.createGain();s.buffer=buf;bp.type='bandpass';bp.frequency.value=f;bp.Q.value=2;g.gain.value=vol;s.connect(bp).connect(g).connect(c.destination);s.start(t)}
+const sfx={
+  chip(n=2){for(let i=0;i<n;i++){noise(.04,3800,.35,i*.06);noise(.03,5200,.2,i*.06+.02)}},
+  fold(){tone(180,.18,'triangle',.18);tone(120,.22,'sine',.12,.05)},
+  check(){tone(300,.05,'square',.05);tone(300,.05,'square',.05,.09)},
+  street(){noise(.4,900,.12);tone(392,.3,'triangle',.07,.05)},
+  allin(){[220,277,330,440].forEach((f,i)=>tone(f,.25,'sawtooth',.05,i*.05))},
+  win(){[523,659,784,1047,1319].forEach((f,i)=>tone(f,.25,'triangle',.12,i*.08))},
+  tap(){tone(660,.04,'sine',.06)}
+};
+function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
+
+
+sfx.turn=()=>{[660,880,1100].forEach((f,i)=>tone(f,.16,'triangle',.12,i*.09))};
+/* ================= FX ================= */
+
+
+let toastT=0,toastQ=Promise.resolve();
+function toast(text,icon=''){
+  toastQ=toastQ.then(()=>new Promise(res=>{
+    document.querySelectorAll('.toast').forEach(t=>t.remove());
+    const el=document.createElement('div');el.className='toast';el.innerHTML=`${icon?`<span>${icon}</span>`:''}<span>${esc(text)}</span>`;
+    document.body.appendChild(el);
+    const a=el.animate(RM?[{opacity:0},{opacity:1,offset:.1},{opacity:1,offset:.85},{opacity:0}]:
+      [{opacity:0,transform:'translate(-50%,-20px) scale(.9)'},{opacity:1,transform:'translate(-50%,0) scale(1)',offset:.12},{opacity:1,transform:'translate(-50%,0)',offset:.85},{opacity:0,transform:'translate(-50%,-10px)'}],
+      {duration:1600,easing:'ease-out'});
+    a.onfinish=()=>{el.remove()};setTimeout(res,900);
+  }));
+}
+const cv=document.getElementById('fx'),cx=cv.getContext('2d');let parts=[],raf=0;
+function confetti(x,y,n=120){
+  if(RM)return;
+  const dpr=devicePixelRatio||1;cv.width=innerWidth*dpr;cv.height=innerHeight*dpr;cx.setTransform(dpr,0,0,dpr,0,0);
+  const cs=['#e21b3c','#1368ce','#ffc000','#26890c','#ffffff','#b98cff'];
+  for(let i=0;i<n;i++){const a=-Math.PI/2+(Math.random()-.5)*2.4,s=4+Math.random()*8;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:Math.random()*7+4,c:cs[i%cs.length],rot:Math.random()*6,vr:(Math.random()-.5)*.3,life:1,round:i%3===0})}
+  if(!raf)raf=requestAnimationFrame(tick);
+}
+function tick(){
+  cx.clearRect(0,0,innerWidth,innerHeight);
+  parts.forEach(p=>{p.vy+=.2;p.vx*=.99;p.x+=p.vx;p.y+=p.vy;p.rot+=p.vr;p.life-=.007;
+    cx.save();cx.globalAlpha=Math.max(0,p.life);cx.translate(p.x,p.y);cx.rotate(p.rot);cx.fillStyle=p.c;
+    if(p.round){cx.beginPath();cx.arc(0,0,p.r/2.4,0,7);cx.fill()}else cx.fillRect(-p.r/2,-p.r/4,p.r,p.r/2);cx.restore()});
+  parts=parts.filter(p=>p.life>0&&p.y<innerHeight+40);
+  raf=parts.length?requestAnimationFrame(tick):(cx.clearRect(0,0,innerWidth,innerHeight),0);
+}
+
+function effects(pre,post){
+  if(!pre||!post||pre.gid!==post.gid)return;
+  const P=post.players;
+  if(post.phase==='gameover'&&pre.phase!=='gameover'){const w=P.find(p=>p.stack>0);toast(`${w?w.name:''} ชนะทั้งเกม`,'🏆');sfx.win();confetti(innerWidth/2,innerHeight*.45,200);return}
+  if(post.handNo!==pre.handNo){toast(post.blindUp?`มือที่ ${post.handNo} · บลายด์ขึ้น ${fmt(post.sb)}/${fmt(post.bb)}`:`มือที่ ${post.handNo} · ดีลเลอร์ ${P[post.dealer].name}`,'🃏');sfx.chip(2);myTurnPing(pre,post);return}
+  let chips=false;
+  P.forEach((p,i)=>{const q=pre.players[i];if(!q)return;
+    if(p.folded&&!q.folded&&!p.out){sfx.fold();buzz(25)}
+    if(p.allIn&&!q.allIn){toast(`${p.name} ALL-IN`,'🔥');sfx.allin();buzz([40,40,80])}
+    if(p.stack<q.stack)chips=true;
+    if(p.stack>q.stack&&q.stack===0&&p.buyins>q.buyins)toast(`${p.name} ซื้อชิปเพิ่ม`,'💰');
+  });
+  if(chips)sfx.chip(3);
+  if(post.phase==='betting'&&post.street!==pre.street&&post.handNo===pre.handNo){toast(`${STREETS[post.street]} · ${STREET_TH[post.street]}`,'✨');setTimeout(sfx.street,250)}
+  if(post.phase==='showdown'&&pre.phase!=='showdown'){toast('Showdown · เปิดไพ่!','👀');sfx.street()}
+  if(post.phase==='handover'&&pre.phase!=='handover'){
+    setTimeout(()=>{sfx.win();buzz([60,40,60]);const el=document.querySelector('.winners');const r=el?el.getBoundingClientRect():{left:innerWidth/2,top:innerHeight/2,width:0,height:0};confetti(r.left+r.width/2,r.top+r.height/2)},200);
+  }
+  myTurnPing(pre,post);
+}
+function myTurnPing(pre,post){
+  if(mode!=='online'||post.phase!=='betting')return;
+  const cur=post.players[post.toAct];if(!cur||cur.uid!==NET.cid)return;
+  const was=pre.phase==='betting'&&pre.players[pre.toAct]&&pre.players[pre.toAct].uid===NET.cid&&pre.handNo===post.handNo&&pre.street===post.street&&pre.log.length===post.log.length;
+  if(was)return;
+  setTimeout(()=>{toast('ตาคุณแล้ว!','👉');sfx.turn();buzz([80,60,80])},350);
+}
+
+/* ================= COMMIT / PERMISSIONS ================= */
+const isHost=()=>mode==='local'||(R.room&&R.room.host===NET.cid);
+function canActNow(){
+  if(!S||S.phase!=='betting'||R.pending)return false;
+  if(mode==='local')return true;
+  const cur=S.players[S.toAct];
+  return (cur&&cur.uid===NET.cid)||(ui.override&&isHost());
+}
+// host / local: apply a change to the authoritative state
+function commit(fn){
+  if(mode==='local'){
+    const pre=S;hist.push(JSON.stringify(S));if(hist.length>40)hist.shift();
+    S=clone(S);fn();saveLocal();render();effects(pre,S);return;
+  }
+  if(!isHost())return;
+  const H=R.host,pre=S;
+  S=clone(S);fn();const next=S;S=pre;
+  next.log=next.log.slice(-160);
+  H.hist.push(JSON.stringify(pre));if(H.hist.length>15)H.hist.shift();
+  H.S=next;H.status='playing';H.v++;ui.override=false;
+  hostPublish();
+}
+// any player: a betting action. Host applies directly, guests send it to the host.
+function act(type,to){
+  if(!canActNow())return;
+  ui.raiseOpen=false;
+  if(mode==='local'||isHost()){commit(()=>doAct(type,to));return}
+  const id=Math.random().toString(36).slice(2,10);
+  R.pending={id,type,to,v:R.room.v,at:Date.now(),first:Date.now()};
+  sendIn({t:'act',uid:NET.cid,id,type,to,v:R.room.v});render();
+}
+function undo(){
+  if(mode==='local'){if(hist.length){S=JSON.parse(hist.pop());ui.raiseFor=-1;ui.raiseOpen=false;saveLocal();render()}return}
+  if(!isHost()||!R.host.hist.length)return;
+  R.host.S=JSON.parse(R.host.hist.pop());R.host.v++;hostPublish();
+}
+const canUndo=()=>mode==='local'?hist.length>0:(isHost()&&R.host&&R.host.hist.length>0);
+
+/* ================= NETWORK (MQTT relay, host is the referee) ================= */
+const BROKER='wss://broker.emqx.io:8084/mqtt';
+const TOPIC='pokernight-th/v1/';
+const T=(code,k)=>TOPIC+code+'/'+k;
+let hbTimer=null,resendTimer=null,wakeLock=null;
+function initNet(){
+  if(typeof mqtt==='undefined'){NET.status='off';render();return}
+  const c=mqtt.connect(BROKER,{clientId:'pkn_'+NET.cid.slice(0,10)+'_'+Math.random().toString(36).slice(2,7),reconnectPeriod:2000,connectTimeout:9000,clean:true});
+  NET.client=c;
+  c.on('connect',()=>{const was=NET.status;NET.status='on';if(R.code)subscribeRoom(R.code);if(R.host)hostPublish();if(was!=='on')render()});
+  c.on('reconnect',()=>{if(NET.status==='on'){NET.status='retry';render()}});
+  c.on('offline',()=>{NET.status='retry';render()});
+  c.on('error',()=>{});
+  c.on('message',onMsg);
+  setTimeout(()=>{if(NET.status==='checking'){NET.status='retry';render()}},9000);
+}
+function subscribeRoom(code){NET.client.subscribe([T(code,'state'),T(code,'hb')].concat(R.host?[T(code,'in')]:[]),{qos:1})}
+function unsubscribeRoom(code){try{NET.client.unsubscribe([T(code,'state'),T(code,'hb'),T(code,'in')])}catch(e){}}
+function sendIn(m){if(NET.client&&R.code)NET.client.publish(T(R.code,'in'),JSON.stringify(m),{qos:1})}
+function onMsg(topic,buf){
+  const parts=topic.split('/'),code=parts[2],kind=parts[3];
+  if(kind==='hb'){if(code===R.code){R.lastHb=Date.now();if(R.hostAway){R.hostAway=false;render()}}return}
+  if(R.probe&&R.probe.code===code&&kind==='state'){R.probe.done(buf.length?JSON.parse(buf.toString()):null);return}
+  if(code!==R.code)return;
+  if(kind==='in'&&R.host){try{hostHandle(JSON.parse(buf.toString()))}catch(e){}return}
+  if(kind==='state'){
+    if(!buf.length){if(!R.host){toast('host ปิดห้องแล้ว','👋');leaveRoom(true)}return}
+    let room;try{room=JSON.parse(buf.toString())}catch(e){return}
+    if(R.host)return;               // host renders from its own copy
+    applyRoom(room);
+  }
+}
+function applyRoom(room){
+  const prevV=R.room?R.room.v:-1;R.room=room;R.lastHb=R.lastHb||Date.now();
+  if(R.pending&&room.v!==R.pending.v)R.pending=null;
+  if(room.status==='playing'&&room.S){
+    const mine=room.S.players.some(p=>p.uid===NET.cid);
+    if(!mine&&!isHost()){ui.err='ห้องนี้เริ่มเกมไปแล้ว รอเกมจบแล้วค่อยเข้า';leaveRoom(true);view='join';render();return}
+    const pre=S;S=clone(room.S);view='game';
+    if(!canActNow())ui.raiseOpen=false;
+    render();if(room.v!==prevV)effects(pre,S);
+  }else{
+    S=null;view='lobby';
+    if(!isHost()&&!room.members.some(m=>m.uid===NET.cid)&&R.joined){R.joined=false;sendIn({t:'hello',uid:NET.cid,name:myName(),av:AVATARS[ui.me.a]})}
+    render();
+  }
+}
+/* ---- host side ---- */
+function hostSave(){try{localStorage.setItem(KEY+'.host',JSON.stringify(R.host))}catch(e){}}
+function hostPublish(){
+  const H=R.host;if(!H)return;
+  const room={code:H.code,host:H.host,status:H.status,settings:H.settings,members:H.members,seat:H.seat,S:H.S,v:H.v,ts:Date.now()};
+  hostSave();
+  if(NET.client&&NET.status==='on')NET.client.publish(T(H.code,'state'),JSON.stringify(room),{qos:1,retain:true});
+  applyHost(room);
+}
+function applyHost(room){
+  const prevV=R.room?R.room.v:-1,pre=S;R.room=room;
+  if(room.status==='playing'&&room.S){S=clone(room.S);view='game';render();if(room.v!==prevV)effects(pre,S)}
+  else{S=null;view='lobby';render()}
+}
+function hostHandle(m){
+  const H=R.host;if(!m||!m.uid)return;
+  if(m.t==='hello'){
+    if(H.status==='lobby'){
+      const ex=H.members.find(x=>x.uid===m.uid);
+      const name=String(m.name||'ผู้เล่น').slice(0,12),av=AVATARS.includes(m.av)?m.av:AVATARS[0];
+      if(ex){ex.name=name;ex.av=av}else{if(H.members.length>=10)return;H.members.push({uid:m.uid,name,av,joinedAt:Date.now()})}
+      H.v++;hostPublish();
+    }else hostPublish();
+    return;
+  }
+  if(m.t==='leave'&&H.status==='lobby'){H.members=H.members.filter(x=>x.uid!==m.uid);H.seat=H.seat.filter(u=>u!==m.uid);H.v++;hostPublish();return}
+  if(m.t==='act'){
+    R.seenActs=R.seenActs||[];if(R.seenActs.includes(m.id)){hostPublish();return}
+    R.seenActs.push(m.id);if(R.seenActs.length>50)R.seenActs.shift();
+    const S0=H.S;if(!S0||S0.phase!=='betting'||m.v!==H.v)return hostPublish();
+    const cur=S0.players[S0.toAct];if(!cur||cur.uid!==m.uid)return hostPublish();
+    if(!['fold','check','call','allin','raise'].includes(m.type))return;
+    commit(()=>doAct(m.type,+m.to||0));
+  }
+}
+function startHeartbeat(){clearInterval(hbTimer);hbTimer=setInterval(()=>{if(R.host&&NET.status==='on')NET.client.publish(T(R.code,'hb'),'1',{qos:0})},5000)}
+function watchdog(){
+  clearInterval(resendTimer);
+  resendTimer=setInterval(()=>{
+    if(!R.code||R.host)return;
+    const away=R.room&&R.room.status==='playing'&&Date.now()-(R.lastHb||0)>16000;
+    if(away!==!!R.hostAway){R.hostAway=away;render()}
+    if(R.pending&&Date.now()-R.pending.first>12000){R.pending=null;toast('ส่งไม่ถึง host ลองกดใหม่','⚠️');render()}
+    if(R.pending&&Date.now()-R.pending.at>3000){R.pending.at=Date.now();sendIn({t:'act',uid:NET.cid,id:R.pending.id,type:R.pending.type,to:R.pending.to,v:R.pending.v})}
+    if(R.joinWait&&R.room&&!R.room.members.some(m=>m.uid===NET.cid)&&R.room.status==='lobby')sendIn({t:'hello',uid:NET.cid,name:myName(),av:AVATARS[ui.me.a]});
+  },1500);
+}
+async function keepAwake(){try{if('wakeLock' in navigator&&document.visibilityState==='visible'&&R.code)wakeLock=await navigator.wakeLock.request('screen')}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){keepAwake();if(NET.client&&!NET.client.connected)NET.client.reconnect()}});
+function probe(code,ms=3500){
+  return new Promise(res=>{
+    const done=v=>{if(!R.probe||R.probe.code!==code)return;R.probe=null;try{NET.client.unsubscribe(T(code,'state'))}catch(e){}res(v)};
+    R.probe={code,done};NET.client.subscribe(T(code,'state'),{qos:1});
+    setTimeout(()=>done(undefined),ms);
+  });
+}
+function enterRoom(code,asHost){
+  R.code=code;mode='online';view='lobby';R.lastHb=Date.now();R.hostAway=false;
+  saveLocal();subscribeRoom(code);watchdog();keepAwake();
+  if(asHost){startHeartbeat();hostPublish()}
+  try{history.replaceState(null,'',location.pathname+'?room='+code)}catch(e){}
+  render();
+}
+function leaveRoom(silent){
+  if(R.code){if(!R.host&&R.room&&R.room.status==='lobby'&&!silent)sendIn({t:'leave',uid:NET.cid});unsubscribeRoom(R.code)}
+  clearInterval(hbTimer);clearInterval(resendTimer);
+  R={code:null,room:null,host:null,pending:null};S=null;mode=null;view='home';ui.modal=false;
+  try{localStorage.removeItem(KEY+'.host')}catch(e){}
+  try{wakeLock&&wakeLock.release()}catch(e){}
+  try{history.replaceState(null,'',location.pathname)}catch(e){}
+  saveLocal();render();
+}
+function closeRoom(){if(R.host&&NET.client)NET.client.publish(T(R.code,'state'),'',{qos:1,retain:true});leaveRoom(true)}
+async function createRoom(){
+  const s=ui.setup;let code='';
+  for(let k=0;k<5;k++){code=String(Math.floor(100000+Math.random()*900000));const ex=await probe(code,1200);if(!ex||Date.now()-(ex.ts||0)>864e5)break}
+  R.host={code,host:NET.cid,status:'lobby',settings:{chips:Math.floor(s.chips),sb:Math.floor(s.sb),bb:Math.floor(s.bb),every:s.every},
+    members:[{uid:NET.cid,name:myName(),av:AVATARS[ui.me.a],joinedAt:Date.now()}],seat:[],S:null,v:1,hist:[]};
+  enterRoom(code,true);
+}
+async function findRoom(code){
+  const room=await probe(code,4000);
+  if(room===undefined||room===null)return {err:'ไม่พบห้องนี้ เช็ครหัสอีกครั้ง หรือให้ host เปิดเว็บค้างไว้'};
+  if(room.status==='playing'&&room.S&&!room.S.players.some(p=>p.uid===NET.cid))return {err:'ห้องนี้เริ่มเกมไปแล้ว รอเกมจบแล้วค่อยเข้า'};
+  return {room};
+}
+function joinRoom(){R.joinWait=true;R.joined=true;enterRoom(ui.joinCode,false);sendIn({t:'hello',uid:NET.cid,name:myName(),av:AVATARS[ui.me.a]})}
+const myName=()=>(ui.me.name||'').trim().slice(0,12)||'ผู้เล่น';
+function seatOrder(){
+  const mem=(R.room&&R.room.members)||[];const ids=mem.map(m=>m.uid);const seat=((R.room&&R.room.seat)||[]).filter(u=>ids.includes(u));
+  return [...seat,...ids.filter(u=>!seat.includes(u))].map(u=>mem.find(m=>m.uid===u));
+}
+function moveSeat(uid,dir){
+  const o=seatOrder().map(m=>m.uid),i=o.indexOf(uid),j=i+dir;if(i<0||j<0||j>=o.length)return;
+  [o[i],o[j]]=[o[j],o[i]];R.host.seat=o;R.host.v++;hostPublish();
+}
+function kick(uid){const H=R.host;H.members=H.members.filter(m=>m.uid!==uid);H.seat=H.seat.filter(u=>u!==uid);H.v++;hostPublish()}
+function startOnline(){
+  const order=seatOrder();if(order.length<2)return;
+  const st=R.host.settings,keep=S;S=null;
+  newGame({players:order.map(m=>({name:m.name,av:m.av,uid:m.uid})),chips:st.chips,sb:st.sb,bb:st.bb,every:st.every});
+  S.gid=Date.now();const g=S;S=keep;
+  R.host.S=g;R.host.status='playing';R.host.hist=[];R.host.v++;hostPublish();
+}
+function backToLobby(){R.host.status='lobby';R.host.S=null;R.host.hist=[];R.host.v++;hostPublish()}
+function resumeOnLoad(){
+  const q=new URLSearchParams(location.search).get('room');
+  let saved=null;try{saved=JSON.parse(localStorage.getItem(KEY+'.host')||'null')}catch(e){}
+  if(saved&&saved.host===NET.cid&&(!q||q===saved.code)){R.host=saved;R.host.hist=R.host.hist||[];enterRoom(saved.code,true);return}
+  if(q&&/^\d{6}$/.test(q)){
+    if(R.code===q){R.joined=true;enterRoom(q,false);return}
+    ui.joinCode=q;view='join';
+  }else if(R.code&&mode!=='local'){R.joined=true;enterRoom(R.code,false)}
+}
+
+/* ================= RENDER ================= */
+const avHTML=(p,extra='')=>`<div class="av" style="--pc:${PCOL[p.ci??0]}">${p.av}${extra}</div>`;
+const shp=k=>`<span class="shape ${SHAPES[k%4]}"></span>`;
+const dots=`<span class="dots"><i></i><i></i><i></i><i></i></span>`;
+function render(){
+  const app=$('#app');
+  const f=document.activeElement&&document.activeElement.id,sel=f&&document.activeElement.selectionStart;
+  app.innerHTML=view==='game'&&S?gameView():view==='lobby'?lobbyView():view==='create'?createView():view==='join'?joinView():view==='profile'?profileView():view==='localsetup'?localSetupView():homeView();
+  if(ui.modal&&S)app.insertAdjacentHTML('beforeend',menuView());
+  if(S&&ui.raiseOpen&&canActNow())app.insertAdjacentHTML('beforeend',raiseView());
+  if(ui.help)app.insertAdjacentHTML('beforeend',helpView());
+  if(ui.picker!==null)app.insertAdjacentHTML('beforeend',pickerView());
+  if(mode==='online'&&(R.hostAway||NET.status==='retry'))app.insertAdjacentHTML('beforeend',`<div class="netbar">${NET.status==='retry'?'เน็ตหลุด กำลังเชื่อมต่อใหม่':'host หลุด รอ host กลับมา'} ${dots}</div>`);
+  bindRaise();
+  if(f){const el=document.getElementById(f);if(el&&el.tagName==='INPUT'){el.focus();try{if(sel!=null)el.setSelectionRange(sel,sel)}catch(e){}}}
+}
+
+/* ---- home ---- */
+function homeView(){
+  const st=NET.status;
+  return `<div class="lobby home">
+    <div class="logo"><div class="shapes">${[0,1,2,3].map(shp).join('')}</div><h1>Poker<br>Night!</h1><p>นับชิปให้ เล่นกับเพื่อนสนุกขึ้น</p></div>
+    <div class="homebtns">
+      <button class="ans a-yellow big" data-a="go-create" ${st!=='on'?'disabled':''}>${shp(2)}<span><b>สร้างห้อง</b><small>ตั้งค่าเกม แล้วแชร์รหัสให้เพื่อน</small></span></button>
+      <button class="ans a-blue big" data-a="go-join" ${st!=='on'?'disabled':''}>${shp(1)}<span><b>เข้าร่วม</b><small>ใส่รหัสห้องจากเพื่อน</small></span></button>
+    </div>
+    ${st==='checking'||st==='retry'?`<p class="hint">กำลังเชื่อมต่อเซิร์ฟเวอร์ ${dots}</p>`:st==='off'?`<p class="hint">โหลดระบบออนไลน์ไม่ได้ ลองรีเฟรชหน้า</p>`:''}
+    <button class="linkbtn" data-a="go-local">เล่นเครื่องเดียว (ส่งมือถือวนกัน)</button>
+  </div>`;
+}
+function pickerView(){
+  const t=ui.picker,cur=t==='me'?ui.me.a:ui.setup.players[t].a;
+  return `<div class="backdrop" data-a="pickclose"><div class="modal" data-a="noop">
+    <div class="mhead"><h2>เลือกตัวละคร</h2><button class="xbtn" data-a="pickclose" aria-label="ปิด">✕</button></div>
+    <div class="avgrid">${AVATARS.map((a,i)=>`<button class="${cur===i?'on':''}" data-a="pick-av" data-i="${i}" style="--pc:${PCOL[i%10]}" aria-label="เลือก ${a}">${a}</button>`).join('')}</div>
+  </div></div>`;
+}
+function profileCard(){
+  return `<div class="card"><h3><span>โปรไฟล์ของคุณ</span><span>แตะรูปเพื่อเปลี่ยน</span></h3>
+    <div class="mepreview"><button class="av editav" data-a="picker" data-t="me" style="--pc:${PCOL[ui.me.a%10]};--s:72px" aria-label="เปลี่ยนตัวละคร">${AVATARS[ui.me.a]}<span class="pen">✎</span></button>
+      <input class="numin" id="myname" maxlength="12" placeholder="ชื่อเล่น" value="${esc(ui.me.name)}"></div></div>`;
+}
+function rulesCard(){
+  const s=ui.setup;
+  const pills=(key,opts)=>`<div class="pills">${opts.map(([v,l])=>`<button class="${String(s[key])===String(v)?'on':''}" data-a="set" data-k="${key}" data-v="${v}">${l}</button>`).join('')}</div>`;
+  const bl=`<div class="pills">${[[5,10],[10,20],[25,50],[50,100]].map(([a,b])=>`<button class="${s.sb===a&&s.bb===b?'on':''}" data-a="blinds" data-v="${a},${b}">${a}/${b}</button>`).join('')}</div>`;
+  return `<div class="card"><h3>ชิปเริ่มต้น</h3>
+      ${pills('chips',[[500,'500'],[1000,'1,000'],[2000,'2,000'],[5000,'5,000']])}
+      <input class="numin num" id="chips" type="number" min="1" value="${s.chips}" aria-label="ชิปเริ่มต้น"></div>
+    <div class="card"><h3>บลายด์ Small / Big</h3>${bl}
+      <div class="numrow"><input class="numin num" id="sb" type="number" min="1" value="${s.sb}" aria-label="Small blind"><input class="numin num" id="bb" type="number" min="1" value="${s.bb}" aria-label="Big blind"></div></div>
+    <div class="card"><h3>ขึ้นบลายด์ x2</h3>${pills('every',[[0,'ไม่ขึ้น'],[5,'5 มือ'],[10,'10 มือ'],[15,'15 มือ']])}</div>`;
+}
+function createView(){
+  return `<div class="lobby">
+    <div class="pagehead"><button class="ibtn" data-a="home" aria-label="กลับ">←</button><h2>สร้างห้อง</h2></div>
+    ${profileCard()}${rulesCard()}
+    <p class="err" id="err" ${ui.err?'':'hidden'}>${esc(ui.err)}</p>
+    <button class="bigbtn dark" data-a="do-create">สร้างห้อง ▶</button></div>`;
+}
+function joinView(){
+  return `<div class="lobby home">
+    <div class="pagehead"><button class="ibtn" data-a="home" aria-label="กลับ">←</button><h2>เข้าร่วม</h2></div>
+    <div class="pinbox">
+      <input id="pin" class="pin num" inputmode="numeric" maxlength="6" placeholder="รหัสห้อง" value="${esc(ui.joinCode)}" aria-label="รหัสห้อง">
+      <button class="bigbtn dark" data-a="do-pin">ต่อไป</button>
+    </div>
+    <p class="err" ${ui.err?'':'hidden'}>${esc(ui.err)}</p></div>`;
+}
+function profileView(){
+  return `<div class="lobby">
+    <div class="pagehead"><button class="ibtn" data-a="go-join" aria-label="กลับ">←</button><h2>ห้อง <span class="num">${esc(ui.joinCode)}</span></h2></div>
+    ${profileCard()}
+    <p class="err" ${ui.err?'':'hidden'}>${esc(ui.err)}</p>
+    <button class="bigbtn dark" data-a="do-join">เข้าห้อง ▶</button></div>`;
+}
+function lobbyView(){
+  if(!R.room)return `<div class="lobby home"><p class="hint" style="margin-top:40vh">กำลังเข้าห้อง ${dots}</p></div>`;
+  const host=isHost(),st=R.room.settings,order=seatOrder().filter(Boolean);
+  return `<div class="lobby">
+    <div class="pagehead"><button class="ibtn" data-a="leave" aria-label="ออก">←</button><h2>ห้องรอ</h2></div>
+    <div class="codebox"><small>รหัสห้อง</small><b class="num">${R.code.slice(0,3)} ${R.code.slice(3)}</b>
+      <div class="numrow"><button class="copy" data-a="copy">คัดลอกรหัส</button><button class="copy" data-a="copylink">คัดลอกลิงก์เชิญ</button></div></div>
+    <p class="hint">ส่งลิงก์เชิญให้เพื่อน หรือให้เพื่อนเปิดเว็บ กด "เข้าร่วม" แล้วใส่รหัส${host?' · เปิดหน้านี้ค้างไว้ตลอดเกม':''}</p>
+    <div class="card"><h3><span>ผู้เล่น ${order.length}/10</span><span>${host?'ลูกศรจัดที่นั่ง':'เรียงตามที่นั่ง'}</span></h3>
+      ${order.map((m,i)=>`<div class="prow"><div class="av" style="--pc:${PCOL[i%10]}">${m.av}</div><span class="pname">${esc(m.name)}${m.uid===NET.cid?' <em>(คุณ)</em>':''}${m.uid===R.room.host?' <span class="hosttag">HOST</span>':''}</span>
+        ${host&&m.uid!==R.room.host?`<button class="x" data-a="kick" data-u="${esc(m.uid)}" aria-label="เอาออก">✕</button>`:''}${host?`<button class="x" data-a="seat" data-u="${esc(m.uid)}" data-d="-1" ${i===0?'disabled':''} aria-label="เลื่อนขึ้น">▲</button><button class="x" data-a="seat" data-u="${esc(m.uid)}" data-d="1" ${i===order.length-1?'disabled':''} aria-label="เลื่อนลง">▼</button>`:''}</div>`).join('')}
+      <span class="flab num">ชิปเริ่มต้น ${fmt(st.chips)} · บลายด์ ${fmt(st.sb)}/${fmt(st.bb)}${st.every?` · ขึ้นทุก ${st.every} มือ`:''}</span></div>
+    ${!host&&!R.room.members.some(m=>m.uid===NET.cid)?`<div class="waitbox"><b>กำลังเข้าห้อง</b>${dots}</div>`:''}
+    ${host?`<button class="bigbtn go" data-a="do-start" ${order.length<2?'disabled':''}>${order.length<2?'รอผู้เล่นอย่างน้อย 2 คน':'เริ่มเกม ▶'}</button>`
+          :`<div class="waitbox"><b>รอ host เริ่มเกม</b>${dots}</div>`}
+  </div>`;
+}
+function localSetupView(){
+  const s=ui.setup;
+  const rows=s.players.map((p,i)=>`<div class="prow">
+      <button class="av editav" style="--pc:${PCOL[i%10]}" data-a="picker" data-t="${i}" aria-label="เปลี่ยนรูป">${AVATARS[p.a%AVATARS.length]}</button>
+      <input id="pn${i}" data-pn="${i}" maxlength="12" placeholder="ผู้เล่น ${i+1}" value="${esc(p.n)}">
+      ${s.players.length>2?`<button class="x" data-a="rm" data-i="${i}" aria-label="ลบ">✕</button>`:''}
+    </div>`).join('');
+  return `<div class="lobby">
+    <div class="pagehead"><button class="ibtn" data-a="home" aria-label="กลับ">←</button><h2>เล่นเครื่องเดียว</h2></div>
+    <div class="card"><h3><span>ผู้เล่น ${s.players.length}/10</span><span>แตะรูปเพื่อเปลี่ยน</span></h3>
+      ${rows}${s.players.length<10?`<button class="addp" data-a="add">+ เพิ่มผู้เล่น</button>`:''}
+      <span class="flab">เรียงตามที่นั่งจริง วนตามเข็มนาฬิกา</span></div>
+    ${rulesCard()}
+    <p class="err" id="err" hidden></p>
+    <button class="bigbtn dark" data-a="start-local">เริ่มเกม ▶</button></div>`;
+}
+function readForms(){
+  const s=ui.setup;s.players.forEach((p,i)=>{const el=$('#pn'+i);if(el)p.n=el.value});
+  const c=$('#chips'),a=$('#sb'),b=$('#bb');if(c)s.chips=+c.value;if(a)s.sb=+a.value;if(b)s.bb=+b.value;
+  const n=$('#myname');if(n)ui.me.name=n.value;
+  const pin=$('#pin');if(pin)ui.joinCode=pin.value.replace(/\D/g,'');
+}
+function checkRules(){const s=ui.setup;return !(s.chips>0)?'ใส่ชิปเริ่มต้นมากกว่า 0':!(s.sb>0&&s.bb>0)?'ใส่บลายด์มากกว่า 0':s.bb<s.sb?'Big blind ต้องไม่น้อยกว่า Small blind':s.bb>s.chips?'Big blind มากกว่าชิปเริ่มต้น':''}
+
+/* ---- game ---- */
+function gameView(){
+  const ph=S.phase;
+  const pots=ph==='betting'?computePots():(S.pots||[]);
+  const pot=(ph==='handover'||ph==='gameover')?0:potTotal();
+  const bump=pot!==ui.lastPot&&ui.lastPot>=0;ui.lastPot=pot;
+  const shown=ph==='betting'?[0,3,4,5][S.street]:(ph==='showdown'?5:0);
+  const cards=[0,1,2,3,4].map(k=>`<i class="${k<shown?'on '+SUITS[k][1]:''} ${k===3?'gap':''}">${k<shown?SUITS[k][0]:''}</i>`).join('');
+  const stName=ph==='betting'?STREETS[S.street]:ph==='showdown'?'Showdown':ph==='handover'?'จบมือ':'จบเกม';
+  const live=ph==='betting'||ph==='showdown';
+  return `
+  <div class="topbar">
+    <div class="hand">มือ ${S.handNo}<small class="num">${fmt(S.sb)}/${fmt(S.bb)}</small></div>
+    <div class="cards" aria-label="ไพ่กลางเปิดแล้ว ${shown} ใบ">${cards}</div>
+    <div class="potbox"><small>หม้อกลาง</small><b class="num ${bump?'bump':''}">${fmt(pot)}</b></div>
+  </div>
+  <div class="subrow"><div class="streetname">${stName}<small>${ph==='betting'?STREET_TH[S.street]:''}</small></div>
+    <div class="tools">${isHost()?`<button class="ibtn" data-a="undo" ${canUndo()?'':'disabled'} aria-label="ย้อนกลับ">↶</button>`:''}<button class="ibtn" data-a="menu" aria-label="เมนู">☰</button></div></div>
+  ${pots.length>1&&live?`<div class="sidepots">${pots.map((pt,i)=>`<span>${i?'หม้อรอง '+i:'หม้อหลัก'} <span class="num">${fmt(pt.amount)}</span></span>`).join('')}</div>`:''}
+  ${stageView()}`;
+}
+function meBar(){
+  if(mode!=='online')return '';
+  const i=S.players.findIndex(p=>p.uid===NET.cid);if(i<0)return '';
+  const p=S.players[i];
+  return `<div class="mebar">${avHTML(p)}<span>คุณ · ${esc(p.name)}</span><b class="num">${fmt(p.stack)}</b></div>`;
+}
+function hostName(){const h=R.room&&S.players.find(p=>p.uid===R.room.host);return h?h.name:'host'}
+function stageView(){
+  const P=S.players,ph=S.phase;
+  if(ph==='betting'){
+    const i=S.toAct,p=P[i],toCall=S.currentBet-p.bet,callAmt=Math.min(toCall,p.stack);
+    const {canRaise}=raiseLimits(p);
+    const key=S.handNo+'-'+i+'-'+S.log.length,enter=key!==ui.lastKey;ui.lastKey=key;
+    const isBet=S.currentBet===0,mine=canActNow(),isMe=mode==='online'&&p.uid===NET.cid;
+    const pos=[i===S.dealer&&'<span>Dealer</span>',i===S.sbIdx&&'<span class="sb">Small Blind</span>',i===S.bbIdx&&'<span class="bb">Big Blind</span>'].filter(Boolean).join('');
+    return `<div class="stage">
+      <div class="focus">
+        <div class="spot">
+          <div class="stat ${toCall>0?'hot':'ok'}"><b class="num">${toCall>0?fmt(callAmt):'0'}</b><small>ต้องคอล</small></div>
+          <div class="hero ${enter?'enter':''}">${avHTML(p)}${pos?`<div class="pos">${pos}</div>`:''}</div>
+          <div class="stat"><b class="num">${fmt(p.stack)}</b><small>ชิปที่มี</small></div>
+        </div>
+        <div class="namecard ${isMe?'mine':''}"><small>${isMe?'ถึงตาคุณแล้ว!':'ตาของ'}</small><b>${esc(p.name)}</b></div>
+        <div class="under num">ลงรอบนี้ <b>${fmt(p.bet)}</b> · ลงทั้งมือ <b>${fmt(p.total)}</b></div>
+      </div>
+      <button class="helpbtn" data-a="help" aria-label="ดูอันดับไพ่">?</button>
+    </div>
+    ${mine?`<div class="answers">
+      <button class="ans a-red" data-a="fold">${shp(0)}<span><b>Fold</b><small>หมอบ</small></span></button>
+      ${toCall>0?`<button class="ans a-blue" data-a="call">${shp(1)}<span><b>${callAmt>=p.stack?'All-in':'Call'}</b><small class="num">${fmt(callAmt)}</small></span></button>`
+                :`<button class="ans a-blue" data-a="check">${shp(1)}<span><b>Check</b><small>ผ่าน</small></span></button>`}
+      <button class="ans a-yellow" data-a="raiseopen" ${canRaise?'':'disabled'}>${shp(2)}<span><b>${isBet?'Bet':'Raise'}</b><small>${isBet?'เบท':'เพิ่มเดิมพัน'}</small></span></button>
+      <button class="ans a-green" data-a="allin">${shp(3)}<span><b>All-in</b><small class="num">${fmt(p.stack)}</small></span></button>
+    </div>`:`<div class="footer"><div class="waitbox"><b>${R.pending?'กำลังส่ง…':esc(p.name)+' กำลังคิด'}</b>${dots}</div>${meBar()}</div>`}`;
+  }
+  if(ph==='showdown'){
+    const ready=S.pots.every((pt,i)=>S.win[i]&&S.win[i].length),host=isHost();
+    return `<div class="stage top">
+      <div class="qcard" style="position:relative"><h2>ใครชนะมือนี้?</h2><p>${host?'เปิดไพ่แล้วแตะคนที่ชนะ · เลือกหลายคน = แบ่งหม้อ':'เปิดไพ่ให้ทุกคนดู แล้วรอ host เลือกผู้ชนะ'}</p><button class="helpbtn in" data-a="help" aria-label="ดูอันดับไพ่">?</button></div>
+      ${S.pots.map((pt,i)=>`<div class="potsec">
+        ${S.pots.length>1?`<h3><span>${i===0?'หม้อหลัก':'หม้อรอง '+i}</span><span class="num">${fmt(pt.amount)}</span></h3>`:''}
+        <div class="tiles">${pt.elig.map((e,k)=>`<button class="tile ${ACOL[k%4]} ${(S.win[i]||[]).includes(e)?'on':''}" data-a="win" data-pot="${i}" data-p="${e}" ${host?'':'disabled style="opacity:1;filter:none;cursor:default"'}>${avHTML(P[e])}<span>${esc(P[e].name)}</span>${shp(k)}</button>`).join('')}</div>
+      </div>`).join('')}
+    </div>
+    <div class="footer">${host?`<button class="bigbtn go" data-a="payout" ${ready?'':'disabled'}>จ่ายชิป ✓</button>`:`<div class="waitbox"><b>รอ ${esc(hostName())} เลือกผู้ชนะ</b>${dots}</div>`}</div>`;
+  }
+  if(ph==='handover'){
+    const busted=P.map((p,i)=>({p,i})).filter(x=>x.p.stack<=0);
+    const total=S.result.reduce((s,r)=>s+r.amt,0);
+    const wset=new Set(S.result.map(r=>r.i));
+    const order=P.map((p,i)=>({p,i})).sort((a,b)=>b.p.stack-a.p.stack);
+    const host=isHost();
+    return `<div class="stage top" style="gap:14px">
+      <div class="banner">${S.result.length>1?'แบ่งหม้อ!':'ชนะ!'}</div>
+      <div class="winners">${S.result.map(r=>`<div class="w"><div style="position:relative"><span class="crown">👑</span>${avHTML(P[r.i])}</div><b style="font-size:20px;font-weight:900">${esc(P[r.i].name)}</b></div>`).join('')}</div>
+      <div class="scorepill num">+${fmt(total)}</div>
+      <div class="board"><h3>Scoreboard</h3>
+        ${order.map((x,k)=>`<div class="brow ${k===0?'top':''} ${x.p.stack<=0?'out':''}" style="animation-delay:${.15+k*.07}s">${avHTML(x.p)}<span class="nm">${esc(x.p.name)}${mode==='online'&&x.p.uid===NET.cid?' (คุณ)':''}</span>${wset.has(x.i)?`<span class="dl num">+${fmt(S.result.find(r=>r.i===x.i).amt)}</span>`:''}<span class="sc num">${fmt(x.p.stack)}</span></div>`).join('')}
+      </div>
+      ${busted.length&&host?`<p class="hint">ชิปหมด · ซื้อเพิ่มหรือออกจากโต๊ะ</p><div class="rebuys">${busted.map(x=>`<button class="rb" data-a="rebuy" data-p="${x.i}">${avHTML(x.p)}ซื้อชิป ${esc(x.p.name)}</button>`).join('')}</div>`:''}
+    </div>
+    <div class="footer">${host?`<button class="bigbtn" data-a="next">มือถัดไป →</button>`:`<div class="waitbox"><b>รอ ${esc(hostName())} แจกมือถัดไป</b>${dots}</div>`}</div>`;
+  }
+  if(ph==='gameover'){
+    const o=P.map(p=>({...p,net:p.stack-p.buyins*S.startChips})).sort((a,b)=>b.stack-a.stack||b.net-a.net);
+    const pod=(x,r)=>x?`<div class="pod p${r}">${r===1?'<div style="position:relative"><span class="crown">👑</span>'+avHTML(x)+'</div>':avHTML(x)}<span class="nm">${esc(x.name)}</span><small class="num">${fmt(x.stack)}</small><div class="blk">${r}</div></div>`:'<div></div>';
+    const host=isHost();
+    return `<div class="stage top">
+      <div class="qcard"><h2>🏆 Podium</h2><p>จบเกมแล้ว เหลือคนเดียวที่มีชิป</p></div>
+      <div class="podium">${pod(o[1],2)}${pod(o[0],1)}${pod(o[2],3)}</div>
+      ${host?`<div class="rebuys">${P.map((p,i)=>p.stack<=0?`<button class="rb" data-a="rebuy" data-p="${i}">${avHTML(p)}ซื้อชิป ${esc(p.name)}</button>`:'').join('')}</div>`:''}
+    </div>
+    <div class="footer">${host?`<button class="bigbtn dark" data-a="${mode==='online'?'to-lobby':'newgame-yes'}">${mode==='online'?'กลับห้องรอ':'เริ่มเกมใหม่'}</button>`:`<div class="waitbox"><b>รอ host เริ่มเกมใหม่</b>${dots}</div>`}</div>`;
+  }
+  return '';
+}
+function rankRows(){
+  const P=S.players.map(p=>({...p,net:p.stack-p.buyins*S.startChips})).sort((a,b)=>b.stack-a.stack);
+  return P.map((p,k)=>`<div class="brow">${avHTML(p)}<span class="nm">${k+1}. ${esc(p.name)}${p.buyins>1?` · ซื้อ ${p.buyins}x`:''}</span><span class="dl num" style="color:${p.net<0?'var(--red)':'var(--green)'}">${p.net>0?'+':''}${fmt(p.net)}</span><span class="sc num">${fmt(p.stack)}</span></div>`).join('');
+}
+const HANDS=[
+ ['Royal Flush','รอยัลฟลัช','A K Q J 10 ดอกเดียวกัน',['A♥','K♥','Q♥','J♥','10♥']],
+ ['Straight Flush','สเตรทฟลัช','เรียงกัน 5 ใบ ดอกเดียวกัน',['9♠','8♠','7♠','6♠','5♠']],
+ ['Four of a Kind','โฟร์การ์ด','เลขเดียวกัน 4 ใบ',['Q♠','Q♥','Q♣','Q♦','']],
+ ['Full House','ฟูลเฮาส์','ตอง 3 ใบ + คู่ 2 ใบ',['3♠','3♥','3♦','8♣','8♥']],
+ ['Flush','ฟลัช','ดอกเดียวกัน 5 ใบ ไม่ต้องเรียง',['K♦','10♦','7♦','4♦','2♦']],
+ ['Straight','สเตรท','เรียงกัน 5 ใบ ดอกไหนก็ได้',['5♠','4♥','3♣','2♦','A♠']],
+ ['Three of a Kind','ตอง','เลขเดียวกัน 3 ใบ',['7♣','7♥','7♠','','']],
+ ['Two Pair','สองคู่','คู่ 2 ชุด',['J♠','J♦','4♣','4♥','']],
+ ['One Pair','หนึ่งคู่','เลขเดียวกัน 2 ใบ',['10♥','10♣','','','']],
+ ['High Card','ไพ่สูง','ไม่เข้าอะไรเลย ดูใบสูงสุด',['A♣','','','','']]];
+function helpView(){
+  const card=c=>{if(!c)return '<i class="pc0"></i>';const suit=c.slice(-1),r=c.slice(0,-1),red=suit==='♥'||suit==='♦';return `<i class="pc1 ${red?'r':''}"><b>${r}</b><span>${suit}</span></i>`};
+  return `<div class="backdrop" data-a="helpclose"><div class="modal" data-a="noop">
+    <div class="mhead"><h2>อันดับไพ่</h2><button class="xbtn" data-a="helpclose" aria-label="ปิด">✕</button></div>
+    <p class="mhint" style="text-align:left">ใช้ไพ่ 2 ใบในมือ + 5 ใบกลาง เลือก 5 ใบที่ดีที่สุด · ยิ่งอยู่บนยิ่งชนะ</p>
+    <div class="hands">${HANDS.map((h,k)=>`<div class="hrow"><span class="hn">${k+1}</span><div class="hc">${h[3].map(card).join('')}</div><div class="ht"><b>${h[0]}</b><small>${h[1]} · ${h[2]}</small></div></div>`).join('')}</div>
+    <div class="rules">
+      <p><b>เสมอกัน?</b> ถ้าได้ประเภทเดียวกัน ดูเลขที่สูงกว่า เช่น คู่ K ชนะคู่ 9 ถ้ายังเท่ากันให้ดูไพ่ใบที่เหลือ (kicker) ทีละใบ ถ้าเท่ากันหมดให้แบ่งหม้อ</p>
+      <p><b>ลำดับเลข</b> A สูงสุด › K › Q › J › 10 … › 2 · A ใช้เป็นใบต่ำได้ใน A-2-3-4-5</p>
+      <p><b>ดอกไม่มีอันดับ</b> ♠♥♦♣ เท่ากันหมด</p>
+    </div>
+  </div></div>`;
+}
+
+function raiseView(){
+  const p=S.players[S.toAct],{minTo,maxTo}=raiseLimits(p);
+  if(ui.raiseFor!==S.toAct){ui.raiseFor=S.toAct;ui.raiseTo=minTo}
+  const isBet=S.currentBet===0;
+  return `<div class="backdrop" data-a="raiseclose"><div class="modal" data-a="noop">
+    <div class="mhead"><h2>${isBet?'Bet':'Raise to'}</h2><button class="xbtn" data-a="raiseclose" aria-label="ปิด">✕</button></div>
+    <p class="mhint num">${esc(p.name)} มี ${fmt(p.stack)} · ขั้นต่ำ ${fmt(minTo)} · สูงสุด ${fmt(maxTo)}</p>
+    <div class="bigamt"><button class="stp" data-a="step" data-v="-1" aria-label="ลด">−</button>
+      <input id="raiseNum" class="num" type="number" min="${minTo}" max="${maxTo}" value="${ui.raiseTo}" aria-label="จำนวน">
+      <button class="stp" data-a="step" data-v="1" aria-label="เพิ่ม">+</button></div>
+    <input type="range" id="raiseRange" min="${minTo}" max="${maxTo}" step="${Math.max(1,Math.min(S.sb,maxTo-minTo||1))}" value="${ui.raiseTo}" ${minTo===maxTo?'disabled':''} aria-label="เลื่อนจำนวน">
+    <div class="quick">${[['min','Min'],['.5','½ Pot'],['1','Pot'],['all','All-in']].map(([v,l],k)=>`<button class="${ACOL[k]}" data-a="q" data-v="${v}">${shp(k)}${l}</button>`).join('')}</div>
+    <button class="bigbtn dark" id="raiseBtn" data-a="raise"></button>
+  </div></div>`;
+}
+function menuView(){
+  const groups={};S.log.forEach(l=>{(groups[l.h]=groups[l.h]||[]).push(l.t)});
+  const hs=Object.keys(groups).map(Number).sort((a,b)=>b-a).slice(0,8);
+  const host=isHost();
+  const body=ui.tab==='log'?`<div class="log">${hs.map(h=>`<div class="h">มือที่ ${h}</div>${groups[h].map(t=>`<div class="e">${esc(t)}</div>`).join('')}`).join('')||'<p class="mhint">ยังไม่มี</p>'}</div>`
+   :ui.tab==='rank'?`<div class="board mrank">${rankRows()}</div>`
+   :`${mode==='online'?`<div class="flab num">ห้อง ${esc(R.code)}${host?' · คุณเป็น host':''}</div>`:''}
+     ${host?`<span class="flab">บลายด์ · มีผลมือถัดไป</span>
+      <div class="numrow"><input class="numin num" id="msb" type="number" min="1" value="${S.sb}" aria-label="SB"><input class="numin num" id="mbb" type="number" min="1" value="${S.bb}" aria-label="BB"></div>
+      <button class="softbtn" data-a="setblinds">บันทึกบลายด์</button>`:''}
+     ${host&&mode==='online'&&S.phase==='betting'?`<button class="softbtn" data-a="override">เล่นแทน ${esc(S.players[S.toAct].name)} (กรณีหลุด)</button>`:''}
+     <button class="softbtn" data-a="sound">${ui.sound?'🔊 เสียงเปิด':'🔇 เสียงปิด'}</button>
+     ${mode==='online'?(host?`<button class="softbtn" style="color:var(--red)" data-a="closeroom">ปิดห้อง (จบเกมทุกคน)</button>`:`<button class="softbtn" style="color:var(--red)" data-a="leave">ออกจากห้อง</button>`)
+       :ui.confirm?`<div class="danger">ล้างเกมนี้ทั้งหมด?<div class="numrow"><button class="softbtn" style="flex:1;color:var(--red)" data-a="newgame-yes">ล้างเลย</button><button class="softbtn" style="flex:1" data-a="noconfirm">ยกเลิก</button></div></div>`
+       :`<button class="softbtn" style="color:var(--red)" data-a="newgame">เลิกเกมนี้</button>`}`;
+  return `<div class="backdrop" data-a="close"><div class="modal" data-a="noop">
+    <div class="mhead"><h2>เมนู</h2><button class="xbtn" data-a="close" aria-label="ปิด">✕</button></div>
+    <div class="tabs">${[['log','บันทึก'],['rank','อันดับ'],['set','ตั้งค่า']].map(([k,l])=>`<button class="${ui.tab===k?'on':''}" data-a="tab" data-v="${k}">${l}</button>`).join('')}</div>
+    ${body}</div></div>`;
+}
+function bindRaise(){
+  const r=$('#raiseRange'),rn=$('#raiseNum');
+  if(r)r.oninput=e=>{ui.raiseTo=+e.target.value;rn.value=ui.raiseTo;updRaiseBtn()};
+  if(rn)rn.oninput=e=>{ui.raiseTo=+e.target.value||0;if(r)r.value=ui.raiseTo;updRaiseBtn()};
+  updRaiseBtn();
+}
+function updRaiseBtn(){
+  const b=$('#raiseBtn');if(!b||!S)return;
+  const p=S.players[S.toAct],{minTo,maxTo}=raiseLimits(p),v=ui.raiseTo,ok=v>=minTo&&v<=maxTo;
+  b.disabled=!ok;
+  b.textContent=!ok?`ใส่ ${fmt(minTo)}–${fmt(maxTo)}`:v===maxTo?`All-in ${fmt(v)}`:`${S.currentBet===0?'Bet':'Raise to'} ${fmt(v)}`;
+}
+function setRaise(v){
+  const p=S.players[S.toAct],{minTo,maxTo}=raiseLimits(p);
+  ui.raiseTo=Math.max(minTo,Math.min(maxTo,Math.round(v)));
+  const rn=$('#raiseNum'),r=$('#raiseRange');if(rn)rn.value=ui.raiseTo;if(r)r.value=ui.raiseTo;updRaiseBtn();sfx.tap();
+}
+
+/* ================= EVENTS ================= */
+document.addEventListener('input',e=>{const i=e.target.dataset.pn;if(i!==undefined)ui.setup.players[+i].n=e.target.value;if(e.target.id==='myname')ui.me.name=e.target.value;if(e.target.id==='pin'){e.target.value=e.target.value.replace(/\D/g,'').slice(0,6);ui.joinCode=e.target.value}});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='pin'){e.preventDefault();$('[data-a=do-pin]')?.click()}});
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-a]');if(!b||b.disabled)return;
+  const a=b.dataset.a,s=ui.setup;
+  if(a==='noop')return;
+  ac();
+  try{switch(a){
+    case 'home':readForms();ui.err='';view='home';render();break;
+    case 'go-create':ui.err='';view='create';render();break;
+    case 'go-join':readForms();ui.err='';view='join';render();break;
+    case 'go-local':view='localsetup';render();break;
+    case 'picker':readForms();ui.picker=b.dataset.t==='me'?'me':+b.dataset.t;sfx.tap();render();break;
+    case 'pickclose':ui.picker=null;render();break;
+    case 'pick-av':{const i=+b.dataset.i;if(ui.picker==='me')ui.me.a=i;else if(ui.picker!==null)ui.setup.players[ui.picker].a=i;ui.picker=null;sfx.tap();saveLocal();render();break}
+    case 'do-create':{readForms();const bad=checkRules()||(!ui.me.name.trim()?'ใส่ชื่อของคุณก่อน':'');if(bad){ui.err=bad;render();return}
+      if(NET.status!=='on'){ui.err='ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ รอสักครู่แล้วลองใหม่';render();return}
+      ui.err='';saveLocal();b.disabled=true;b.textContent='กำลังสร้าง…';await createRoom();break}
+    case 'do-pin':{readForms();const c=ui.joinCode;if(c.length!==6){ui.err='รหัสห้องมี 6 หลัก';render();return}
+      if(NET.status!=='on'){ui.err='ยังเชื่อมต่อเซิร์ฟเวอร์ไม่ได้ รอสักครู่แล้วลองใหม่';render();return}
+      b.disabled=true;b.textContent='กำลังหาห้อง…';
+      const r=await findRoom(c);
+      if(r.err){ui.err=r.err;render();return}
+      if(r.room.status==='playing'){ui.err='';R.joined=true;enterRoom(c,false);return}
+      ui.err='';view='profile';render();break}
+    case 'do-join':{readForms();if(!ui.me.name.trim()){ui.err='ใส่ชื่อของคุณก่อน';render();return}
+      saveLocal();ui.err='';joinRoom();break}
+    case 'copy':{try{await navigator.clipboard.writeText(R.code);toast('คัดลอกรหัสแล้ว','📋')}catch(err){toast('รหัส '+R.code,'📋')}break}
+    case 'copylink':{const u=location.origin+location.pathname+'?room='+R.code;try{if(navigator.share){await navigator.share({title:'Poker Night',text:'มาเล่นโป๊กเกอร์กัน! รหัสห้อง '+R.code,url:u})}else{await navigator.clipboard.writeText(u);toast('คัดลอกลิงก์แล้ว','🔗')}}catch(err){}break}
+    case 'kick':if(isHost())kick(b.dataset.u);break;
+    case 'closeroom':if(isHost())closeRoom();break;
+    case 'seat':if(isHost())moveSeat(b.dataset.u,+b.dataset.d);break;
+    case 'do-start':if(isHost())startOnline();break;
+    case 'to-lobby':if(isHost())backToLobby();break;
+    case 'leave':leaveRoom();break;
+
+    case 'add':readForms();{const used=new Set(s.players.map(p=>p.a));let k=0;while(used.has(k))k++;s.players.push({n:'',a:k})}sfx.tap();render();break;
+    case 'rm':readForms();s.players.splice(+b.dataset.i,1);render();break;
+    case 'set':readForms();s[b.dataset.k]=+b.dataset.v;render();break;
+    case 'blinds':readForms();[s.sb,s.bb]=b.dataset.v.split(',').map(Number);render();break;
+    case 'start-local':{
+      readForms();const err=$('#err'),bad=checkRules();
+      if(bad){err.textContent=bad;err.hidden=false;return}
+      const players=s.players.map((p,i)=>({name:(p.n||'').trim()||'ผู้เล่น '+(i+1),av:AVATARS[p.a%AVATARS.length]}));
+      mode='local';S=null;hist=[];ui.lastPot=-1;
+      newGame({players,chips:Math.floor(s.chips),sb:Math.floor(s.sb),bb:Math.floor(s.bb),every:s.every});S.gid=Date.now();
+      view='game';saveLocal();render();toast(`มือที่ 1 · ดีลเลอร์ ${S.players[S.dealer].name}`,'🃏');
+      break}
+    case 'undo':undo();sfx.tap();break;
+    case 'help':ui.help=true;sfx.tap();render();break;
+    case 'helpclose':ui.help=false;render();break;
+    case 'menu':ui.modal=true;ui.confirm=false;render();break;
+    case 'close':ui.modal=false;render();break;
+    case 'tab':ui.tab=b.dataset.v;render();break;
+    case 'sound':ui.sound=!ui.sound;saveLocal();render();break;
+    case 'override':ui.override=true;ui.modal=false;render();break;
+    case 'fold':case 'check':case 'call':case 'allin':act(a);if(a==='check')sfx.check();break;
+    case 'raiseopen':if(!canActNow())return;ui.raiseOpen=true;ui.raiseFor=-1;sfx.tap();render();break;
+    case 'raiseclose':ui.raiseOpen=false;render();break;
+    case 'raise':act('raise',ui.raiseTo);break;
+    case 'step':setRaise((ui.raiseTo||0)+(+b.dataset.v)*S.bb);break;
+    case 'q':{const p=S.players[S.toAct],v=b.dataset.v,toCall=S.currentBet-p.bet;
+      setRaise(v==='min'?raiseLimits(p).minTo:v==='all'?p.bet+p.stack:S.currentBet+(+v)*(potTotal()+toCall));break}
+    case 'win':{if(!isHost())return;const i=+b.dataset.pot,p=+b.dataset.p;sfx.tap();
+      commit(()=>{const w=S.win[i]||(S.win[i]=[]),k=w.indexOf(p);if(k>=0)w.splice(k,1);else w.push(p)});break}
+    case 'payout':if(isHost())commit(()=>payout());break;
+    case 'next':if(isHost())commit(()=>startHand());break;
+    case 'rebuy':if(isHost()){const i=+b.dataset.p;sfx.chip(3);commit(()=>{const p=S.players[i];p.stack+=S.startChips;p.buyins++;p.out=false;log(`${p.name} ซื้อชิปเพิ่ม ${fmt(S.startChips)}`);if(S.phase==='gameover')S.phase='handover'})}break;
+    case 'setblinds':{const sb=+$('#msb').value,bb=+$('#mbb').value;if(sb>0&&bb>=sb&&isHost()){ui.modal=false;commit(()=>{S.sb=Math.floor(sb);S.bb=Math.floor(bb);log(`ตั้งบลายด์ใหม่ ${fmt(S.sb)}/${fmt(S.bb)}`)});toast(`บลายด์ใหม่ ${fmt(sb)}/${fmt(bb)}`,'⚙️')}break}
+    case 'newgame':ui.confirm=true;render();break;
+    case 'noconfirm':ui.confirm=false;render();break;
+    case 'newgame-yes':
+      if(S&&mode==='local')ui.setup.players=S.players.map(p=>({n:p.name,a:Math.max(0,AVATARS.indexOf(p.av))}));
+      S=null;hist=[];mode=null;ui.modal=false;ui.confirm=false;ui.raiseOpen=false;view='localsetup';saveLocal();render();break;
+  }}catch(err){console.error(err);toast('มีบางอย่างผิดพลาด ลองอีกครั้ง','⚠️');render()}
+});
+loadLocal();initNet();resumeOnLoad();render();
+</script>
+</body>
+</html>

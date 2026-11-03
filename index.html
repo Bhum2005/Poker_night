@@ -129,7 +129,7 @@ input{font:inherit;color:var(--ink)}
 .tile.on::after{content:"✓";position:absolute;right:8px;bottom:8px;width:24px;height:24px;border-radius:50%;background:#fff;color:var(--green);display:grid;place-items:center;font-weight:900}
 
 /* result */
-.banner{width:calc(100% + 32px);margin-inline:-16px;background:var(--green);padding:14px;text-align:center;font-size:28px;font-weight:900;box-shadow:0 6px 0 rgba(0,0,0,.2);animation:slide .45s cubic-bezier(.2,1.2,.4,1)}
+.banner{width:100%;border-radius:12px;background:var(--green);padding:14px;text-align:center;font-size:28px;font-weight:900;box-shadow:0 6px 0 rgba(0,0,0,.2);animation:slide .45s cubic-bezier(.2,1.2,.4,1)}
 .winners{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
 .winners .w{display:grid;justify-items:center;gap:6px;animation:boing .6s cubic-bezier(.2,1.4,.4,1)}
 .winners .av{--s:96px;border:5px solid #fff;box-shadow:0 8px 0 rgba(0,0,0,.22)}
@@ -240,8 +240,10 @@ canvas#fx{position:fixed;inset:0;width:100%;height:100%;z-index:65;pointer-event
 @media (max-height:700px){.hero .av{--s:104px}.namecard b{font-size:24px}.ans{min-height:72px}.stat{width:66px;height:66px}}
 @media (max-width:360px){.stat{width:62px;height:62px}.stat b{font-size:16px}.ans b{font-size:17px}.cards i{width:18px;height:26px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-.stage{position:relative}
-.stage.top{justify-content:flex-start;padding-top:12px}
+.stage{position:relative;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;justify-content:safe center}
+.stage>*{flex-shrink:0}
+.footer,.answers{flex-shrink:0;position:relative;z-index:2}
+.stage.top{justify-content:flex-start;padding-top:12px;padding-bottom:12px}
 .focus{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
 .helpbtn{position:absolute;right:0;bottom:6px;margin:0}
 .helpbtn.in{right:12px;bottom:auto}
